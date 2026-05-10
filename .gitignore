@@ -1,0 +1,361 @@
+# ================================
+# 嵌入式开发通用 gitignore 模板
+# 支持: Keil/IAR/STM32Cube/Renesas/HDSC/GCC-ARM/PlatformIO等
+# ================================
+
+# ================================
+# 用户自定义忽略区域
+# ================================
+# 在此处添加项目特定的忽略规则
+
+
+
+
+# ================================
+# 构建输出目录
+# ================================
+build/
+Build/
+output/
+Output/
+Objects/
+Obj/
+Listings/
+Lst/
+Debug/
+Release/
+dist/
+bin/
+*.dir/
+.cache/
+
+# ================================
+# 通用编译产物（所有工具链）
+# ================================
+*.o
+*.obj
+*.axf
+*.elf
+*.hex
+*.bin
+*.out
+*.map
+*.lst
+*.lss
+*.sym
+*.srec
+*.s19
+*.mot
+
+# ================================
+# 中间文件（所有工具链）
+# ================================
+*.d
+*.dep
+*.crf
+*.i
+*.ii
+*.s
+*.su
+*.bak
+*.tmp
+
+# ================================
+# Keil MDK-ARM 专有文件
+# ================================
+# 用户配置（本地化）
+*.uvoptx
+*.uvopt
+*.uvguix.*
+*.uvgui.*
+# 项目文件（需提交）
+!*.uvprojx
+!*.uvproj
+# Keil 特有的中间文件
+*.lnp
+*.plg
+*.scvd
+*.rte
+*.SBR
+*.htm
+*.__i
+*._i
+*.uvmpw
+
+# ================================
+# IAR Embedded Workbench
+# ================================
+*.ewt
+*.ewd
+*.ewp
+*.eww
+settings/
+$PROJ_DIR$/Debug/
+$PROJ_DIR$/Release/
+
+# ================================
+# STM32CubeMX / STM32CubeIDE
+# ================================
+*.ioc.bak
+*.mxproject
+.mxproject
+.settings/
+STM32CubeIDE/
+TouchGFX/build/
+TouchGFX/generated/
+
+# ================================
+# Renesas e² studio / CS+
+# ================================
+.metadata/
+RemoteSystemsTempFiles/
+# CS+ 特有文件
+*.abs
+*.poc
+*.inc
+*.ipr
+*.org
+*.sys
+*.mtud
+*.pack
+.rlaunch
+# RL78 链接器和项目文件
+*.clnk
+*.mtpj
+*.rcpe
+
+# ================================
+# 华大半导体（HDSC）
+# ================================
+*.hdsproj.user
+*.hdsc_workspace
+*.hproject
+HDSC_IDE/
+*.afx
+*.afr
+
+# ================================
+# GCC ARM 工具链
+# ================================
+*.a
+
+# ================================
+# CMake 构建系统
+# ================================
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+compile_commands.json
+
+# ================================
+# PlatformIO
+# ================================
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+
+# ================================
+# Segger Embedded Studio
+# ================================
+*.emProject.user
+*.emSession
+
+# ================================
+# NXP MCUXpresso IDE
+# ================================
+.mcuxpressoide*/
+
+# ================================
+# TI Code Composer Studio (CCS)
+# ================================
+.ccsproject
+.cproject
+.project
+*.projectspec
+targetConfigs/
+Debug_*/
+Release_*/
+*.xds
+*.ccxml
+
+# ================================
+# Microchip MPLAB X / Microchip Studio
+# ================================
+.generated_files/
+nbproject/private/
+nbproject/Package-*.bash
+nbproject/Makefile-*.mk
+*.X/dist/
+*.mc3
+*.mcp
+*.mcw
+
+# ================================
+# Infineon DAVE / ModusToolbox
+# ================================
+.mtbLaunchConfigs/
+mtb_shared/
+build/
+libs/
+*.cydsn/
+*.cyprj.*
+*.cywrk.*
+
+# ================================
+# Nordic nRF Connect SDK
+# ================================
+.nrfconnect/
+.west/
+twister-out/
+sanitycheck/
+zephyr/.config
+
+# ================================
+# Espressif ESP-IDF
+# ================================
+sdkconfig.old
+sdkconfig.defaults
+*.espressif/
+managed_components/
+
+# ================================
+# Silicon Labs Simplicity Studio
+# ================================
+.SPC/
+.slcp
+*.slpb
+*.slps
+autogen/
+gecko_sdk*/
+
+# ================================
+# 国产工具链
+# ================================
+# MounRiver Studio（沁恒 WCH）
+.MounRiver_project/
+
+# RT-Thread Studio
+.rttstudio/
+rtconfig.h
+
+# EIDE（VSCode 插件）
+.eide/
+.eide.usr.ctx.json
+
+# 新唐科技 Nuvoton
+*.nuproj.user
+NuvotonIDE/
+
+# 灵动微电子 MindMotion
+*.mmproj.user
+MindMotion_IDE/
+
+# 航顺芯片 HK32
+*.hkproj.user
+
+# 先楫半导体 HPMicro (RISC-V)
+*.hpm_sdk/
+hpm_build/
+
+# 博流智能 Bouffalo Lab (RISC-V)
+*.blproj.user
+bouffalo_sdk/build/
+
+# ================================
+# 调试器配置文件
+# ================================
+*.ini
+*.jlink
+*.svd
+*.tracespec
+*.cdb
+*.db
+*.dbg
+JLinkLog.txt
+JLinkSettings.ini
+
+# ================================
+# IDE 自动生成文件
+# ================================
+# Visual Studio Code
+.vscode/
+# JetBrains IDE
+.idea/
+# Visual Studio
+.vs/
+# Eclipse
+.cproject
+.project
+*.launch
+# 通用配置文件
+*.code-workspace
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+
+# ================================
+# 编辑器临时文件
+# ================================
+*~
+*.swp
+*.swo
+*.~*
+
+# ================================
+# 操作系统文件
+# ================================
+.DS_Store
+Thumbs.db
+desktop.ini
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# ================================
+# 版本控制辅助工具 & AI 编程工具
+# ================================
+# 代码历史记录和备份插件
+.history/
+.lh/
+__history/
+.code-workspace-history/
+
+# AI 编程助手工具配置目录
+.claude/          # Claude Code
+.copilot/         # GitHub Copilot
+.cursor/          # Cursor AI
+.continue/        # Continue.dev
+.tabnine/         # TabNine AI
+.codeium/         # Codeium
+.windsurf/        # Windsurf AI
+.aider/           # Aider AI
+.mentat/          # Mentat AI
+.sourcegraph/     # Sourcegraph Cody
+.bito/            # Bito AI
+.devpilot/        # DevPilot
+.amazon-q/        # Amazon Q Developer
+.supermaven/      # Supermaven AI
+
+# ================================
+# 日志和报告
+# ================================
+*.log
+*.BAT
+
+# ================================
+# 其他工具配置
+# ================================
+.clang-format
+.clang-tidy
+tags
+TAGS
+cscope.*
+
+
