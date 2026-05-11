@@ -20,5 +20,6 @@ typedef struct {
 
 void PID_Init(PID_t *pid, int p, int i, int d);
 int PID_Speed(PID_t *pid, int current_speed);
+int PID_Angle(PID_t *pid, int current_angle); // 新增的角度环位置式 PID
 
 #endif

@@ -15,7 +15,7 @@ uint8_t rxBuffer[11] = {0};
 uint8_t rxIndex = 0;     
 volatile int currentYaw = 0;
 volatile uint8_t yawReady = 0; 
-
+volatile uint32_t tim3_ms_tick = 0;
 
 /**
  * @brief 解析8路循迹模块的数字型数据
@@ -123,6 +123,88 @@ uint8_t xunxian_scan(uint8_t* color)
             return 0; 
     }
 }
+
+
+/**
+ * @brief  获取当前系统精确运行时间（单位：微秒 us）
+ * @note   巧妙利用 1ms中断次数 + 定时器当前计数值(0-999) 拼接出精确到 1us 的时间戳
+ */
+uint32_t Get_System_Us(void)
+{
+    uint32_t ms;
+    uint32_t us;
+    
+    __disable_irq();
+    ms = tim3_ms_tick;
+    us = __HAL_TIM_GET_COUNTER(&htim3);
+    
+    // 如果此刻已经溢出且中断还没处理 (UIF已置位)
+    if ((__HAL_TIM_GET_FLAG(&htim3, TIM_FLAG_UPDATE) != RESET) && (us < 500))
+    {
+        ms++;
+    }
+    __enable_irq();
+    
+    return (ms * 1000) + us;
+}
+
+/**
+ * @brief  非破坏性微秒级延时函数
+ */
+void delay_us(uint16_t us)
+{
+    uint32_t start_time = Get_System_Us();
+    // 一直死等，直到当前时间与起始时间之差达到预期的 us 数
+    while ((Get_System_Us() - start_time) < us);
+}
+
+
+/**
+ * @brief  获取 HC-SR04 测量的距离 (纯整型优化版)
+ * @retval 测量到的距离（单位：厘米 cm）。返回 -1 表示超时/未连接，-2 表示超出量程。
+ */
+int32_t HCSR04_GetDistance(void)
+{
+    uint32_t start_us = 0;
+    uint32_t end_us = 0;
+    uint32_t echo_time = 0;
+    uint32_t timeout_start = 0;
+
+    // 0. 等待之前的 ECHO 完成 (防止模块卡死导致 ECHO 一直为高，或上次测距还没结束)
+    timeout_start = Get_System_Us();
+    while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) == GPIO_PIN_SET)
+    {
+        if ((Get_System_Us() - timeout_start) > 50000) return -2; // 模块异常卡死
+    }
+
+    // 1. 发送 15us 触发脉冲
+    HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);
+    delay_us(15);
+    HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);
+
+    // 2. 等待 ECHO 变高并记录起始时间 (带 10ms 超时保护)
+    timeout_start = Get_System_Us();
+    while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) == GPIO_PIN_RESET)
+    {
+        if ((Get_System_Us() - timeout_start) > 10000) return -1; 
+    }
+    start_us = Get_System_Us(); // 记录回响开始的时间戳
+
+    // 3. 等待 ECHO 变低并记录结束时间
+    while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) == GPIO_PIN_SET)
+    {
+        end_us = Get_System_Us();
+        // 持续时间超过 38000us (约 6.5米)，说明超出量程
+        if ((end_us - start_us) > 38000) return -2;
+    }
+
+    // 4. 计算距离 (纯整型运算，省内存和算力)
+    echo_time = end_us - start_us;
+    
+    // 往返耗时除以 58，直接得出整型的厘米数
+    return (int32_t)(echo_time / 58); 
+}
+
 
 /**
   * @brief  串口接收完成回调函数

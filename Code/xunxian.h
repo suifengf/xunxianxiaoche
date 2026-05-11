@@ -15,6 +15,10 @@
 #define NO_VALID_DATA 999.0f
 #define RX_MAX_LEN 100
 
+#define TRIG_PORT GPIOB
+#define TRIG_PIN  GPIO_PIN_4
+#define ECHO_PORT GPIOB
+#define ECHO_PIN  GPIO_PIN_3
 // --- 变量声明 (全部加上 extern，只声明不定义) ---
 // JY61P 串口接收相关变量声明
 extern uint8_t rxByte;          
@@ -35,6 +39,6 @@ uint8_t xunxian_scan(uint8_t* color);
 uint8_t run(uint8_t flag);
 void buzzer_on(void);
 uint8_t Parse_Track_Data(const char* rx_buffer, uint8_t* sensor_data);
-
+int32_t HCSR04_GetDistance(void);
 #endif
 

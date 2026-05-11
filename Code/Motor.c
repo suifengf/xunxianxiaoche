@@ -8,10 +8,10 @@ void Motor_Init(void)
 
 void Motor_Stop(void)
 {
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_14,0);
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_15,0);
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_12,0);
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_13,0);
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_14,1);
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_15,1);
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_12,1);
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_13,1);
 }
 
 void Motor_Right_Run(int pwm_r)
