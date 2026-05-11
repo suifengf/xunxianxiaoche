@@ -1,10 +1,21 @@
 #include "xunxian.h"
+#include <string.h>
+#include <stdio.h>
 
-// 这里是真正的变量定义（分配内存），注意不要加 extern
-uint8_t Rx_Byte;                
-char Rx_Buffer[RX_MAX_LEN];     
+// --- 真正的变量定义与初始化 (在这里分配内存，千万不要加 extern) ---
+// 循迹模块接收变量定义
+uint8_t Rx_Byte = 0;                
+char Rx_Buffer[RX_MAX_LEN] = {0};     
 uint8_t Rx_Index = 0;           
 uint8_t Rx_Complete_Flag = 0;
+
+// JY61P 接收变量定义
+uint8_t rxByte = 0;          
+uint8_t rxBuffer[11] = {0};    
+uint8_t rxIndex = 0;     
+volatile int currentYaw = 0;
+volatile uint8_t yawReady = 0; 
+
 
 /**
  * @brief 解析8路循迹模块的数字型数据
@@ -109,7 +120,7 @@ uint8_t xunxian_scan(uint8_t* color)
         // === 未识别的状态 ===
         default:
             // 遇到毛刺或者不规则反光，默认保持直行，靠惯性冲过去找线
-            return straight; 
+            return 0; 
     }
 }
 
@@ -120,7 +131,7 @@ uint8_t xunxian_scan(uint8_t* color)
   */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    // 判断是不是串口 2 触发的中断
+    // 判断是不是串口 2 触发的中断 (循迹模块)
     if (huart->Instance == USART2) 
     {
         // 1. 将接收到的字节存入缓冲区
@@ -146,6 +157,79 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         }
         
         // 3. 重新开启中断接收，等待下一个字节
-        HAL_UART_Receive_IT(&huart2, &Rx_Byte, 1);
+        HAL_UART_Receive_IT(huart, &Rx_Byte, 1);
     }
+
+    // 判断是不是串口 3 触发的中断 (JY61P)
+    if (huart->Instance == USART3) {
+        
+        // 状态机处理接收到的字节
+        if (rxIndex == 0) {
+            if (rxByte == 0x55) {
+                rxBuffer[rxIndex++] = rxByte;
+            }
+        } 
+        else if (rxIndex == 1) {
+            if (rxByte == 0x53) {
+                rxBuffer[rxIndex++] = rxByte; // 找到角度包包头
+            } else if (rxByte == 0x55) {
+                // 如果连续收到0x55，保持索引在1，等待0x53
+                rxIndex = 1; 
+            } else {
+                rxIndex = 0; // 帧头错误，重新寻找
+            }
+        } 
+        else if (rxIndex > 1) {
+            rxBuffer[rxIndex++] = rxByte;
+            
+            // 接收满 11 个字节
+            if (rxIndex == 11) {
+                float yaw = GetYawAngle(rxBuffer);
+                if (yaw != NO_VALID_DATA) {
+                    currentYaw = yaw; // 更新全局变量
+                    yawReady = 1;     // 通知主循环数据已就绪
+                }
+                rxIndex = 0; // 清零索引，准备接收下一个包
+            }
+        }
+
+        // 重新开启串口3的单字节中断接收 (非常重要，否则只能进一次中断)
+        HAL_UART_Receive_IT(huart, &rxByte, 1);
+    }
+}
+
+
+/**
+ * @brief 解析串口接收到的 JY61P 角度数据包并返回航向角(Yaw)
+ * * @param packet 包含11个字节的串口数据缓冲区
+ * @return float 返回计算后的偏航角(单位: 度)。如果校验失败或帧头不对，返回 NO_VALID_DATA
+ */
+int GetYawAngle(uint8_t *packet) {
+    // 1. 检查帧头是否为 0x55 (包头) 和 0x53 (角度包)
+    if (packet[0] != 0x55 || packet[1] != 0x53) {
+        return (int)NO_VALID_DATA; // 帧头错误
+    }
+
+    // 2. 校验和计算 (SUM = 0x55 + 0x53 + ... + VH + VL)
+    uint8_t sum = 0;
+    for (int i = 0; i < 10; i++) {
+        sum += packet[i];
+    }
+    
+    // 对比校验和是否与第11个字节一致
+    if (sum != packet[10]) {
+        return (int)NO_VALID_DATA; // 校验失败，数据可能丢包或干扰
+    }
+
+    // 3. 提取偏航角 Yaw 的高低字节
+    uint8_t yawL = packet[6];
+    uint8_t yawH = packet[7];
+
+    // 4. 拼接并转换为有符号 16 位整型 (非常重要，否则无法识别负角度)
+    int16_t yawRaw = (int16_t)((yawH << 8) | yawL);
+
+    // 5. 根据公式计算真实角度
+    int yawAngle = ((int)yawRaw / 32768.0f) * 180.0f;
+
+    return yawAngle;
 }
