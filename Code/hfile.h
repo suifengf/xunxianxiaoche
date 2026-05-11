@@ -3,6 +3,7 @@
 #include "main.h"
 #include "tim.h"
 #include "gpio.h"
+#include "usart.h"
 
 #include "stdlib.h"
 #include "stdio.h"
@@ -12,4 +13,9 @@
 #include "xunxian.h"
 #include "Pid.h"
 #include "Motor.h"
+#include "OLED.h"
+
+
+
+
 #endif

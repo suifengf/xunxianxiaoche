@@ -44,13 +44,13 @@ int PID_Speed(PID_t *pid, int current_speed)
     pid->err_last = pid->err;
 
     /* 6. 输出限幅 (假设 PWM 范围 0 - 10000) */
-    if (pid->output_val > 1500) 
+    if (pid->output_val > 60) 
     {
-        pid->output_val = 1500;
+        pid->output_val = 60;
     } 
-    else if (pid->output_val < -1500) 
+    else if (pid->output_val < -60) 
     { 
-        pid->output_val = -1500; 
+        pid->output_val = -60;
     }
 
     /* 截断返回 16 位结果 */

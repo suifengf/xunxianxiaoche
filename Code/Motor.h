@@ -9,6 +9,6 @@ void Motor_Init(void);
 void Motor_Stop(void);
 void Motor_Right_Run(int pwm_r);
 void Motor_Left_Run(int pwm_l);
-void get_encoder_count_left(uint16_t* count);
-void get_encoder_count_right(uint16_t* count);
+void get_encoder_count_left(int* count_l);
+void get_encoder_count_right(int* count_r);
 #endif

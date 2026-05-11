@@ -5,11 +5,12 @@
 #include "stm32f1xx_hal.h"
 #include "OLED_Data.h"
 
-/* 硬件IIC句柄配置 *********************/
-/* 请根据你在CubeMX中配置的I2C修改此处的外部句柄，默认使用 hi2c1 */
-extern I2C_HandleTypeDef hi2c1;
-#define OLED_I2C_HANDLE hi2c1
-#define OLED_I2C_ADDRESS 0x78
+#include "main.h"   // 添加这句，main.h 里已经包含了对应的 hal.h 头文件
+#include "OLED.h"
+#include <string.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdarg.h>
 
 /*参数宏定义*********************/
 
