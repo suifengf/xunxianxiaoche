@@ -110,16 +110,22 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 #define TRUN_SPEED 0
-void Ctrl_SAT(int v,int a, uint32_t time)
+void Ctrl_SAT(int v, int a, uint32_t time, uint8_t stop_on_line)
 {
   PID_Init(&pid_av, AV_P, AV_I, AV_D);
   pid_av.target_val = a;
-	pid_l.target_val=v;
-	pid_r.target_val=v;
+  
+  // 清除左右轮PID的积分误差，重新初始化
+  PID_Init(&pid_r, PID_P, PID_I, PID_D);
+  PID_Init(&pid_l, PID_P, PID_I, PID_D);
+  pid_l.target_val = v;
+  pid_r.target_val = v;
+  
   get_encoder_count_right(&encoder_data_right);
   get_encoder_count_left(&encoder_data_left);
   uint32_t ms_ = tim3_ms_tick;
-  uint32_t ms_sum;
+  pit_pid_flag = 0; // 同步定时器节拍
+
   for (;;)
   {
     if (yawReady)
@@ -127,28 +133,59 @@ void Ctrl_SAT(int v,int a, uint32_t time)
       yawReady = 0;
       angle = currentYaw;
     }
-		
-		get_encoder_count_right(&encoder_data_right);
-    get_encoder_count_left(&encoder_data_left);
-    pwm_right = PID_Speed(&pid_r, encoder_data_right);
-    pwm_left = PID_Speed(&pid_l, encoder_data_left);
-    int diff = PID_Angle(&pid_av, angle);
-		
-    Motor_Right_Run(pwm_right + diff);
-    Motor_Left_Run(pwm_left - diff);
-		OLED_Printf(0, 8, OLED_6X8, "pwm_R:%d L:%d    ", pwm_right, pwm_left); OLED_Printf(0, 16, OLED_6X8, "diff: %d",angle); OLED_Update();
+    
+    // 如果启用了寻线停止功能，在死循环中也需要解析串口数据
+    if (stop_on_line)
+    {
+      Parse_Track_Data(Rx_Buffer, sensor_data);
+      uint8_t state = xunxian_scan(sensor_data);
+      // 当检测到并非全白(丢线)且并非全黑时，说明压到线了，立即跳出
+      if (state != 6 && state != 0) // zhuangxiang = 6
+      {
+        Motor_Stop();
+        falg_bizhang = 0;
+        return;
+      }
+    }
+    
+    // 必须等待定时器中断标志位，才能保证速度PID结算周期正确
+    if (pit_pid_flag)
+    {
+      pit_pid_flag = 0;
+      get_encoder_count_right(&encoder_data_right);
+      get_encoder_count_left(&encoder_data_left);
+      
+      // 【核心修复】：分离速度环与角度环的耦合，消除二次转向抽搐现象。
+      // 计算底盘两侧轮子的“平均重心速度”，代表车辆实际的前进分量
+      int avg_speed = (encoder_data_right + encoder_data_left) / 2;
+      
+      // 使用 pid_l 作为整个底盘统一的“基准推力”速度环，算出一个统一的基础 PWM
+      int pwm_base = PID_Speed(&pid_l, avg_speed);
+      
+      int diff = PID_Angle(&pid_av, angle);
+      
+      // 左右轮的瞬时输出绝对保持一致基础（避免了分别测算引发的瞬时受力不均），再叠加用于方向管控的 diff 差值
+      pwm_right = pwm_base + diff;
+      pwm_left = pwm_base - diff;
+      
+      Motor_Right_Run(pwm_right);
+      Motor_Left_Run(pwm_left);
+      
+      OLED_Printf(0, 8, OLED_6X8, "pwm_R:%d L:%d    ", pwm_right, pwm_left); 
+      OLED_Printf(0, 16, OLED_6X8, "diff: %d    ", angle); 
+      OLED_Update();
+    }
 
-		if (tim3_ms_tick-ms_ >= time)
-		{
-				Motor_Stop();
-				falg_bizhang = 0;
-				return;
-		}
-		else
-		{
-			falg_bizhang = 1;
-		}
-    ms_sum+=(encoder_data_right+encoder_data_left)/2;
+    if (time > 0 && (tim3_ms_tick - ms_ >= time))
+    {
+        Motor_Stop();
+        falg_bizhang = 0;
+        return;
+    }
+    else
+    {
+      falg_bizhang = 1;
+    }
   }
 }
 /* USER CODE END 0 */
@@ -299,18 +336,38 @@ int main(void)
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);   // 蜂鸣器停止
       }
 			
-      if(delay_bizhang >= 15000)
+      if(delay_bizhang >= 3000)
       {
         bizhang_flag = 2;
         distance_count = 0;
-				int f_a=angle;
-				Ctrl_SAT(2,f_a+120,2500);
-				Ctrl_SAT(5,f_a,2500);
-				Ctrl_SAT(0,f_a-30,200);
-				
-				falg_bizhang = 1;
-				xunxian_flag = 1;
-        delay_bizhang=0;
+        int f_a = angle;
+        
+        // 1. 原地右转出弯角度（纯角度环，速度0，耗时1.5秒，角度比如转 90 度）
+        Ctrl_SAT(0, f_a + 90, 1500, 0); 
+        
+        // 2. 调用速度环走直线（速度5，保持转出的角度，耗时2秒）
+        Ctrl_SAT(5, f_a + 90, 2000, 0); 
+        
+        // 3. 原地左旋转回刚停车时的原始角度（纯角度环，速度0，耗时1.5秒）
+        Ctrl_SAT(0, f_a, 1500, 0);       
+        
+        // 4. 不要预备切线，直接保持回正的方向直行，直到传感器碰到黑线
+        Ctrl_SAT(5, f_a, 0, 1);
+        
+        // 新增：寻到黑线后，为了保证车身中心正好压在线上，继续保持原方向速度5往前开0.5秒
+        Ctrl_SAT(5, f_a, 500, 0);
+        
+        // 5. 碰到黑线后，调用角度环原地左转90度，正对新的寻线方向，耗时1.5秒
+        Ctrl_SAT(0, f_a + 90, 1500, 0); 
+        
+        // 【同步更新】：因为避障时强制跳过了一个左直角，所以把整体转弯方向机制的锁也更新一下
+        // 并将 angle_flag（直角计数）增加 1，让它与实际丢失的赛道直角对应起来
+        global_turn_dir = 1; // 1代表锁定在找左转的过程中
+        angle_flag++;
+        
+        falg_bizhang = 1;
+        xunxian_flag = 1;
+        delay_bizhang = 0;
       }
       else
       {
