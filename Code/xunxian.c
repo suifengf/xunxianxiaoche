@@ -1,7 +1,7 @@
 #include "xunxian.h"
 #include <string.h>
 #include <stdio.h>
-
+uint8_t led_state = 0;
 /**
  * @brief  获取系统运行微秒数 (最大累加约71分钟溢出一次)
  *         利用默认的 ms 级别 SysTick 定时器计算微秒
@@ -73,7 +73,6 @@ uint8_t Parse_Track_Data(const char *rx_buffer, uint8_t *sensor_data)
         }
         return 1; // 解析成功
     }
-
     return 0; // 数据格式不匹配或不完整
 }
 
@@ -188,6 +187,13 @@ int32_t HCSR04_GetDistance(void)
     // 直接返回全局变量，毫秒级的阻塞也彻底消除了！
     return hc_distance; 
 }
+
+void Led_Show(void)
+{
+    led_state =! led_state;
+    HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,led_state);
+}
+
 
 /**
  * @brief EXTI 引脚外部中断回调函数

@@ -81,7 +81,7 @@ uint32_t delay_distance = 0;
 uint8_t distance_count = 0;
 uint8_t bizhang_flag = 0;
 uint32_t delay_bizhang = 0;
-
+uint32_t delay_light = 0;
 uint8_t distance_flag = 1;
 uint8_t sudu_flag = 1;
 /* USER CODE END PV */
@@ -180,6 +180,7 @@ int main(void)
   HAL_UART_Receive_IT(&huart3, &rxByte, 1);
   char start_cmd[] = "$0,0,1#";
   HAL_UART_Transmit(&huart2, (uint8_t *)start_cmd, strlen(start_cmd), 100);
+  
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -187,10 +188,15 @@ int main(void)
 
   while (1)
   {
+		
     // 1. 最高频执行：解析数据和状态
     Parse_Track_Data(Rx_Buffer, sensor_data);
     xunxian_state = xunxian_scan(sensor_data);
-    
+    if(delay_light >= 100)
+    {
+        Led_Show();
+        delay_light = 0;
+    }
     if (delay_distance > 10)
     {
       HCSR04_Trigger(); // 发射超声波脉冲
@@ -355,6 +361,7 @@ int main(void)
       }
     }
 
+
     // 3. 转向状态机
     if (zhuanxiang_flag == 1) // 左转
     {
@@ -508,6 +515,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     tim3_ms_tick++;
     delay_distance++;
     delay_bizhang++;
+    delay_light++;
     // 【优化3】在中断中递减冷却时间
     if (turn_cooldown > 0)
     {

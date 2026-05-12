@@ -46,6 +46,6 @@ uint32_t Get_System_Us(void);
 void delay_us(uint16_t us);
 void Buzzer_Tone(uint16_t freq, uint16_t duration_ms);
 void Play_Sprinkler_Music_Block(void);
-
+void Led_Show(void);
 #endif
 
