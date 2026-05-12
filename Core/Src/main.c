@@ -34,9 +34,19 @@
 #define ANGLE_I 0   // 角度环很多时候用不到 I，可设为 0
 #define ANGLE_D 0
 
+
+
+
+
 #define Speed_Straight 15 // 目标速度，单位为编码器计数每周期
 #define Speed_Diff 10     // 转向时左右轮速度差值
 #define Speed_Diff_l 5
+
+
+#define AV_P 80 // 角度环参数，这些要你自己调
+#define AV_I 0   // 角度环很多时候用不到 I，可设为 0
+#define AV_D 0
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -57,7 +67,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-PID_t pid_r, pid_l, pid_angle;
+PID_t pid_r, pid_l, pid_angle,pid_av;
 volatile uint8_t pit_pid_flag = 0; // 【优化1】增加 volatile
 int encoder_data_left = 0;
 int encoder_data_right = 0;
@@ -70,7 +80,7 @@ volatile uint16_t turn_cooldown = 0; // 【优化3】新增转向冷却倒计时
 uint8_t xunxian_state = 0;
 uint8_t xunxian_flag = 1;
 uint8_t bizhang_is=0;
-
+volatile uint32_t delay_buzz = 0;
 int angle = 0;
 int target_angle = 0;
 uint8_t angle_flag = 0;
@@ -78,15 +88,17 @@ uint8_t delay_flag = 1;
 uint8_t global_turn_dir = 0;           // 【新增】全局转向锁定：0未决定，1锁定左转，2锁定右转
 extern volatile uint32_t tim3_ms_tick; // 【新增】声明 xunxian.c 里的时间戳变量
 uint32_t distance = 0;
-uint32_t delay_distance = 0;
+volatile uint32_t delay_distance = 0;
 uint8_t distance_count = 0;
 uint8_t bizhang_flag = 0;
-uint32_t delay_bizhang = 0;
-uint32_t delay_light = 0;
+volatile uint32_t delay_bizhang = 0;
+volatile uint32_t delay_light = 0;
 uint8_t distance_flag = 1;
 uint8_t sudu_flag = 1;
-
+uint8_t falg_bizhang = 1;
+uint8_t falg_buzz = 1;
 volatile uint32_t f_ms_tick;
+uint8_t falg;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -98,13 +110,16 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 #define TRUN_SPEED 0
-void Ctrl_SAT(int a, int16_t time)
+void Ctrl_SAT(int v,int a, uint32_t time)
 {
-
-  pid_angle.target_val = a;
-	pid_l.target_val=TRUN_SPEED;
-	pid_r.target_val=TRUN_SPEED;
-  uint32_t ms_ = f_ms_tick;
+  PID_Init(&pid_av, AV_P, AV_I, AV_D);
+  pid_av.target_val = a;
+	pid_l.target_val=v;
+	pid_r.target_val=v;
+  get_encoder_count_right(&encoder_data_right);
+  get_encoder_count_left(&encoder_data_left);
+  uint32_t ms_ = tim3_ms_tick;
+  uint32_t ms_sum;
   for (;;)
   {
     if (yawReady)
@@ -117,29 +132,31 @@ void Ctrl_SAT(int a, int16_t time)
     get_encoder_count_left(&encoder_data_left);
     pwm_right = PID_Speed(&pid_r, encoder_data_right);
     pwm_left = PID_Speed(&pid_l, encoder_data_left);
-    int diff = PID_Angle(&pid_angle, angle);
+    int diff = PID_Angle(&pid_av, angle);
 		
-
-		
-		
-
     Motor_Right_Run(pwm_right + diff);
     Motor_Left_Run(pwm_left - diff);
 		OLED_Printf(0, 8, OLED_6X8, "pwm_R:%d L:%d    ", pwm_right, pwm_left); OLED_Printf(0, 16, OLED_6X8, "diff: %d",angle); OLED_Update();
 
-		if (f_ms_tick-ms_ >= time)
+		if (tim3_ms_tick-ms_ >= time)
 		{
 				Motor_Stop();
+				falg_bizhang = 0;
 				return;
 		}
+		else
+		{
+			falg_bizhang = 1;
+		}
+    ms_sum+=(encoder_data_right+encoder_data_left)/2;
   }
 }
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
 
@@ -190,8 +207,7 @@ int main(void)
   /* USER CODE END 2 */
 
   /* Infinite loop */
-  
-	/* USER CODE BEGIN WHILE */
+  /* USER CODE BEGIN WHILE */
 	
  
   while (1)
@@ -200,11 +216,22 @@ int main(void)
     // 1. 最高频执行：解析数据和状态
     Parse_Track_Data(Rx_Buffer, sensor_data);
     xunxian_state = xunxian_scan(sensor_data);
-    if (delay_light >= 100)
+    
+    if (zhuanxiang_flag != 0) // 仅在转弯时调用 Led_Show
     {
-      Led_Show();
+      if (delay_light >= 100)
+      {
+        Led_Show();
+        delay_light = 0;
+      }
+    }
+    else
+    {
+      // 退出转弯时，重置灯光延时，并保证灯光熄灭
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); // 熄灭 LED (PC13 一般高电平熄灭)
       delay_light = 0;
     }
+
     // 超声波测量周期必须大于 60ms (避免声波重叠及模块死机)
     if (delay_distance > 60)
     {
@@ -233,17 +260,24 @@ int main(void)
 
     if (current_dist >= 0 && current_dist < 30)
     {
-      distance_count++;
+      if (distance_count < 200) distance_count++; // 增加上限防止 uint8_t 溢出
 
       if (distance_count >= 10)
       {
-        Motor_Stop();
-        // 停车：速度目标清零，防止最下面的 PID 计算重新把车跑起来
-        xunxian_flag = 0;
-        bizhang_flag = 1;  // 首先进入阶段1：等待 15 秒
-        distance_flag = 0; // 禁用距离检测新触发
-        // 记录遇到障碍物【停车瞬间】的原始角度作为基准
-        pid_angle.target_val = angle;
+        if (bizhang_flag != 1) // 确保已经处于避障停车状态时，不再反复重置计时器
+        {
+          Motor_Stop();
+          // 停车：速度目标清零，防止最下面的 PID 计算重新把车跑起来
+          xunxian_flag = 0;
+          bizhang_flag = 1;  // 首先进入阶段1：等待 15 秒
+          distance_flag = 0; // 禁用距离检测新触发
+          // 记录遇到障碍物【停车瞬间】的原始角度作为基准
+          pid_angle.target_val = angle;
+          
+          // 重置蜂鸣器和避障计时以便响5秒
+          delay_buzz = 0;
+          delay_bizhang = 0;
+        }
       }
     }
     else
@@ -253,12 +287,29 @@ int main(void)
 
     if (bizhang_flag == 1)
     {
-      if (delay_bizhang >= 15000)
+      // 蜂鸣器非阻塞响5秒
+      if (delay_buzz < 5000)
+      {
+				 falg = 1;
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET); // 蜂鸣器响 (假设低电平有效)15
+      }
+      else
+      {
+				falg = 2;
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);   // 蜂鸣器停止
+      }
+			
+      if(delay_bizhang >= 15000)
       {
         bizhang_flag = 2;
         distance_count = 0;
-				Ctrl_SAT(angle+90,1000);
-				Ctrl_SAT(angle+60,1000);
+				int f_a=angle;
+				Ctrl_SAT(2,f_a+120,2500);
+				Ctrl_SAT(5,f_a,2500);
+				Ctrl_SAT(0,f_a-30,200);
+				
+				falg_bizhang = 1;
+				xunxian_flag = 1;
         delay_bizhang=0;
       }
       else
@@ -465,7 +516,7 @@ int main(void)
     }
 
     // 4. PID 运算与低频 OLED 刷新
-    if (pit_pid_flag && delay_flag)
+    if (pit_pid_flag && delay_flag && falg_bizhang)
     {
       pit_pid_flag = 0;
 
@@ -497,17 +548,17 @@ int main(void)
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-   * in the RCC_OscInitTypeDef structure.
-   */
+  * in the RCC_OscInitTypeDef structure.
+  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -521,8 +572,9 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -546,6 +598,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     delay_distance++;
     delay_bizhang++;
     delay_light++;
+		delay_buzz++;
     // 【优化3】在中断中递减冷却时间
     if (turn_cooldown > 0)
     {
@@ -556,9 +609,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -571,12 +624,12 @@ void Error_Handler(void)
 }
 #ifdef USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
