@@ -39,6 +39,13 @@ uint8_t xunxian_scan(uint8_t* color);
 uint8_t run(uint8_t flag);
 void buzzer_on(void);
 uint8_t Parse_Track_Data(const char* rx_buffer, uint8_t* sensor_data);
+void HCSR04_Trigger(void);
 int32_t HCSR04_GetDistance(void);
+
+uint32_t Get_System_Us(void);
+void delay_us(uint16_t us);
+void Buzzer_Tone(uint16_t freq, uint16_t duration_ms);
+void Play_Sprinkler_Music_Block(void);
+
 #endif
 

@@ -37,6 +37,7 @@
 #define Speed_Straight 30 // 目标速度，单位为编码器计数每周期
 #define Speed_Diff 10     // 转向时左右轮速度差值
 #define Speed_Diff_l 5
+#define TRUN_SPEED 5.0f
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -93,13 +94,46 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void Ctrl_SAT(int a, int16_t time)
+{
 
+  pid_angle.target_val = a;
+  uint32_t ms_ = tim3_ms_tick;
+  for (;;)
+  {
+    if (yawReady)
+    {
+      yawReady = 0;
+      angle = currentYaw;
+    }
+    int diff = PID_Angle(&pid_angle, angle);
+    get_encoder_count_right(&encoder_data_right);
+    get_encoder_count_left(&encoder_data_left);
+    if (diff > 0)
+    {
+      pid_l.target_val = TRUN_SPEED + diff;
+      pid_r.target_val = TRUN_SPEED - diff;
+    }
+    else
+    {
+      pid_l.target_val = TRUN_SPEED - (-diff);
+      pid_r.target_val = TRUN_SPEED + (-diff);
+    }
+    pwm_right = PID_Speed(&pid_r, encoder_data_right);
+    pwm_left = PID_Speed(&pid_l, encoder_data_left);
+
+    Motor_Right_Run(pwm_right);
+    Motor_Left_Run(pwm_left);
+    if (ms_ - tim3_ms_tick >= time)
+      return;
+  }
+}
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
 
@@ -146,7 +180,6 @@ int main(void)
   HAL_UART_Receive_IT(&huart3, &rxByte, 1);
   char start_cmd[] = "$0,0,1#";
   HAL_UART_Transmit(&huart2, (uint8_t *)start_cmd, strlen(start_cmd), 100);
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -157,9 +190,11 @@ int main(void)
     // 1. 最高频执行：解析数据和状态
     Parse_Track_Data(Rx_Buffer, sensor_data);
     xunxian_state = xunxian_scan(sensor_data);
-    if (delay_distance > 100)
+    
+    if (delay_distance > 10)
     {
-      distance = HCSR04_GetDistance();
+      HCSR04_Trigger(); // 发射超声波脉冲
+      distance = HCSR04_GetDistance(); // 获取上一次测量的结果
       delay_distance = 0; // 重置计数器
     }
 
@@ -206,135 +241,6 @@ int main(void)
       distance_count = 0;
     }
 
-    // 避障状态机
-    if(bizhang_flag)
-    {
-      // 提取目前角度与目标的差值度数，用作判断是否转到位的条件
-      int temp_err = pid_angle.target_val - angle;
-      if (temp_err > 180) temp_err -= 360;
-      if (temp_err < -180) temp_err += 360;
-
-      if (bizhang_flag == 1) // 阶段1：停车等待 15 秒
-      {
-        // 停车期间不断调用 Motor_Stop 并且目标为0，确保停止
-        Motor_Stop();
-        pid_l.target_val = 0;
-        pid_r.target_val = 0;
-
-        // 等待期间检测障碍是否移走 (距离大于 50，或者返回超时超量程 -1 / -2)
-        if (current_dist > 50 || current_dist == -1 || current_dist == -2)
-        {
-          bizhang_flag = 0;   // 结束避障
-          xunxian_flag = 1;   // 恢复巡线
-          distance_flag = 1;  // 重新使能触发
-          distance_count = 0;
-        }
-        else if (delay_bizhang >= 15000)
-        {
-          // 15 秒时间到，障碍还没走，启动正式绕行
-          bizhang_flag = 2;   // 进入阶段2：原地右转 60 度
-          delay_bizhang = 0;
-          
-          // 计算新目标：在原先记录的基准角度上向右转 60 度
-          int temp_target = pid_angle.target_val - 60;
-          if(temp_target > 180) temp_target -= 360;
-          if(temp_target < -180) temp_target += 360;
-          pid_angle.target_val = temp_target;
-        }
-      }
-      else if (bizhang_flag == 2) // 阶段2：原地右转 60 度
-      {
-        // 容差 ±5 度，认为转弯完成
-        if (temp_err >= -5 && temp_err <= 5) 
-        {
-          bizhang_flag = 3; // 进入阶段3：直行
-          delay_bizhang = 0; // 重新计时
-        }
-        else 
-        {
-          if (temp_err < 0) // 向右转
-          {
-            pid_l.target_val = 20;
-            pid_r.target_val = -20;
-          }
-          else // 超调修正向左转
-          {
-            pid_l.target_val = -20;
-            pid_r.target_val = 20;
-          }
-        }
-      }
-      else if (bizhang_flag == 3) // 阶段3：定角直行 3 秒
-      {
-        int diff = PID_Angle(&pid_angle, angle); 
-        if (diff > 0) 
-        {
-            pid_l.target_val = Speed_Straight + diff;
-            pid_r.target_val = Speed_Straight - diff;
-        }
-        else 
-        {
-            pid_l.target_val = Speed_Straight - (-diff);
-            pid_r.target_val = Speed_Straight + (-diff);
-        }
-
-        // 定时 3 秒 (通过中断 delay_bizhang 累加，等于3000ms)
-        if (delay_bizhang >= 3000) 
-        {
-          bizhang_flag = 4;
-          delay_bizhang = 0;
-          // 新目标：向左转 120 度 (角度增加 120)
-          int temp_target = angle + 120;
-          if (temp_target > 180) temp_target -= 360;
-          if (temp_target < -180) temp_target += 360;
-          pid_angle.target_val = temp_target;
-        }
-      }
-      else if (bizhang_flag == 4) // 阶段4：原地左转 120 度
-      {
-        if (temp_err >= -5 && temp_err <= 5) 
-        {
-          bizhang_flag = 5; // 进入阶段5：直行找黑线
-          delay_bizhang = 0;
-        }
-        else 
-        {
-          if (temp_err > 0) // 目标在左边，向左转
-          {
-            pid_l.target_val = -20;
-            pid_r.target_val = 20;
-          }
-          else // 超调修正
-          {
-            pid_l.target_val = 20;
-            pid_r.target_val = -20;
-          }
-        }
-      }
-      else if (bizhang_flag == 5) // 阶段5：定角直行直到扫到黑线
-      {
-        int diff = PID_Angle(&pid_angle, angle); 
-        if (diff > 0) 
-        {
-            pid_l.target_val = Speed_Straight + diff;
-            pid_r.target_val = Speed_Straight - diff;
-        }
-        else 
-        {
-            pid_l.target_val = Speed_Straight - (-diff);
-            pid_r.target_val = Speed_Straight + (-diff);
-        }
-
-        // 如果任何一个探头扫到了黑线 (非全白0x00)，退出避障
-        // (加 500ms 盲区，防止刚转身时处于起点的黑线干扰)
-        if (xunxian_state != 0 && delay_bizhang > 500) 
-        {
-          bizhang_flag = 0; // 结束避障
-          xunxian_flag = 1; // 恢复巡线
-          distance_flag = 1; // 重新使能前方寻障
-        }
-      }
-    }
     // 2. 寻线状态机
     if (xunxian_flag)
     {
@@ -554,17 +460,17 @@ int main(void)
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-   * in the RCC_OscInitTypeDef structure.
-   */
+  * in the RCC_OscInitTypeDef structure.
+  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -578,8 +484,9 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -611,9 +518,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -626,12 +533,12 @@ void Error_Handler(void)
 }
 #ifdef USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
