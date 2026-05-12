@@ -43,9 +43,9 @@
 #define Speed_Diff_l 5
 
 
-#define AV_P 80 // 角度环参数，这些要你自己调
+#define AV_P 30 // 角度环参数，这些要你自己调
 #define AV_I 0   // 角度环很多时候用不到 I，可设为 0
-#define AV_D 0
+#define AV_D 10
 
 /* USER CODE END Includes */
 
@@ -163,6 +163,14 @@ void Ctrl_SAT(int v, int a, uint32_t time, uint8_t stop_on_line)
       int pwm_base = PID_Speed(&pid_l, avg_speed);
       
       int diff = PID_Angle(&pid_av, angle);
+      
+      // 如果是原地转向（基础目标速度为0），对角度环产生的差速输出进行限幅，避免转得太猛
+      if (v == 0)
+      {
+        int max_diff = 30; // 你可以在这里调节原地转身的限幅大小，越小转得越慢越柔和
+        if (diff > max_diff) diff = max_diff;
+        if (diff < -max_diff) diff = -max_diff;
+      }
       
       // 左右轮的瞬时输出绝对保持一致基础（避免了分别测算引发的瞬时受力不均），再叠加用于方向管控的 diff 差值
       pwm_right = pwm_base + diff;
@@ -328,37 +336,47 @@ int main(void)
       if (delay_buzz < 5000)
       {
 				 falg = 1;
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET); // 蜂鸣器响 (假设低电平有效)15
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET); // 蜂鸣器响 (假设低电平有效)15
       }
       else
       {
 				falg = 2;
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);   // 蜂鸣器停止
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);   // 蜂鸣器停止
       }
 			
-      if(delay_bizhang >= 3000)
+      if(delay_bizhang >= 15000)
       {
         bizhang_flag = 2;
         distance_count = 0;
         int f_a = angle;
         
-        // 1. 原地右转出弯角度（纯角度环，速度0，耗时1.5秒，角度比如转 90 度）
+        // 根据经过直角的次数（angle_flag）来计算当前赛道的理论绝对平行角度
+        int parallel_angle = 0;
+        switch(angle_flag) {
+            case 0: parallel_angle = 0; break;
+            case 1: parallel_angle = 90; break;
+            case 2: parallel_angle = -180; break;
+            case 3: parallel_angle = -90; break;
+            default: parallel_angle = f_a; break;
+        }
+        
+        // 1. 原地右转出弯角度（基于当前实际车头 f_a 转 90 度以脱开障碍物）
         Ctrl_SAT(0, f_a + 90, 1500, 0); 
         
         // 2. 调用速度环走直线（速度5，保持转出的角度，耗时2秒）
         Ctrl_SAT(5, f_a + 90, 2000, 0); 
         
-        // 3. 原地左旋转回刚停车时的原始角度（纯角度环，速度0，耗时1.5秒）
-        Ctrl_SAT(0, f_a, 1500, 0);       
+        // 3. 原地旋转回到平行于黑线的绝对角度（原为左转回 f_a）
+        Ctrl_SAT(0, parallel_angle, 1500, 0);       
         
-        // 4. 不要预备切线，直接保持回正的方向直行，直到传感器碰到黑线
-        Ctrl_SAT(5, f_a, 0, 1);
+        // 4. 不要预备切线，直接保持理论平行的方向直行，直到传感器碰到黑线
+        Ctrl_SAT(5, parallel_angle, 0, 1);
         
-        // 新增：寻到黑线后，为了保证车身中心正好压在线上，继续保持原方向速度5往前开0.5秒
-        Ctrl_SAT(5, f_a, 500, 0);
+        // 新增：寻到黑线后，为了保证车身中心正好压在线上，继续保持平行方向速度5往前开0.5秒
+        Ctrl_SAT(5, parallel_angle, 500, 0);
         
         // 5. 碰到黑线后，调用角度环原地左转90度，正对新的寻线方向，耗时1.5秒
-        Ctrl_SAT(0, f_a + 90, 1500, 0); 
+        Ctrl_SAT(0, parallel_angle + 90, 1500, 0); 
         
         // 【同步更新】：因为避障时强制跳过了一个左直角，所以把整体转弯方向机制的锁也更新一下
         // 并将 angle_flag（直角计数）增加 1，让它与实际丢失的赛道直角对应起来
@@ -533,6 +551,18 @@ int main(void)
           xunxian_flag = 1;
           zhuanxiang_flag = 0;
           turn_cooldown = 500;
+          
+          if (angle_flag >= 4)
+          {
+            // 转完第4个弯了，强行往前开0.5秒然后永久停车
+            Ctrl_SAT(5, target_angle, 500, 0);
+            Motor_Stop();
+            while(1)
+            {
+               // 永久停止
+               Motor_Stop();
+            }
+          }
         }
       }
     }
@@ -568,6 +598,18 @@ int main(void)
           xunxian_flag = 1;
           zhuanxiang_flag = 0;
           turn_cooldown = 500; // 【优化3】结束转弯，赋予冷却期
+          
+          if (angle_flag >= 4)
+          {
+            // 转完第4个弯了，强行往前开0.5秒然后永久停车
+            Ctrl_SAT(5, target_angle, 500, 0);
+            Motor_Stop();
+            while(1)
+            {
+               // 永久停止
+               Motor_Stop();
+            }
+          }
         }
       }
     }
