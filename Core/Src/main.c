@@ -336,12 +336,12 @@ int main(void)
       if (delay_buzz < 5000)
       {
 				 falg = 1;
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET); // 蜂鸣器响 (假设低电平有效)15
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET); // 蜂鸣器响 (假设低电平有效)15
       }
       else
       {
 				falg = 2;
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);   // 蜂鸣器停止
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);   // 蜂鸣器停止
       }
 			
       if(delay_bizhang >= 15000)
@@ -350,38 +350,64 @@ int main(void)
         distance_count = 0;
         int f_a = angle;
         
-        // 根据经过直角的次数（angle_flag）来计算当前赛道的理论绝对平行角度
+        // 根据经过直角的次数（angle_flag）和顺时针/逆时针方向，来计算当前赛道的理论绝对平行角度
         int parallel_angle = 0;
-        switch(angle_flag) {
-            case 0: parallel_angle = 0; break;
-            case 1: parallel_angle = 90; break;
-            case 2: parallel_angle = -180; break;
-            case 3: parallel_angle = -90; break;
-            default: parallel_angle = f_a; break;
+        if (global_turn_dir == 2) // 锁定为右转赛道
+        {
+            switch(angle_flag) {
+                case 0: parallel_angle = 0; break;
+                case 1: parallel_angle = -90; break;
+                case 2: parallel_angle = -180; break;
+                case 3: parallel_angle = 90; break;
+                default: parallel_angle = f_a; break;
+            }
+            
+            // 右转赛道的避障动作：向左绕开
+            // 1. 原地右转出弯角度（向右绕开）
+            Ctrl_SAT(0, f_a - 90, 1500, 0); 
+            // 2. 调用速度环走直线（保持转出的角度，耗时2秒）
+            Ctrl_SAT(5, f_a - 90, 2000, 0); 
+            // 3. 原地旋转回到平行于下个赛段黑线的绝对角度
+            Ctrl_SAT(0, parallel_angle, 1500, 0);       
+            // 4. 直行直到传感器碰到黑线
+            Ctrl_SAT(5, parallel_angle, 0, 1);
+            // 新增：寻到黑线后往前开0.5秒
+            Ctrl_SAT(5, parallel_angle, 700, 0);
+            // 5. 碰到黑线后，调用角度环原地右转90度，正对新的寻线方向
+            Ctrl_SAT(0, parallel_angle - 90, 1500, 0); 
+            
+            // 【同步更新】：强制跳过了一个右直角
+            global_turn_dir = 2; // 确保锁定右转
+            angle_flag++;
         }
-        
-        // 1. 原地右转出弯角度（基于当前实际车头 f_a 转 90 度以脱开障碍物）
-        Ctrl_SAT(0, f_a + 90, 1500, 0); 
-        
-        // 2. 调用速度环走直线（速度5，保持转出的角度，耗时2秒）
-        Ctrl_SAT(5, f_a + 90, 2000, 0); 
-        
-        // 3. 原地旋转回到平行于黑线的绝对角度（原为左转回 f_a）
-        Ctrl_SAT(0, parallel_angle, 1500, 0);       
-        
-        // 4. 不要预备切线，直接保持理论平行的方向直行，直到传感器碰到黑线
-        Ctrl_SAT(5, parallel_angle, 0, 1);
-        
-        // 新增：寻到黑线后，为了保证车身中心正好压在线上，继续保持平行方向速度5往前开0.5秒
-        Ctrl_SAT(5, parallel_angle, 500, 0);
-        
-        // 5. 碰到黑线后，调用角度环原地左转90度，正对新的寻线方向，耗时1.5秒
-        Ctrl_SAT(0, parallel_angle + 90, 1500, 0); 
-        
-        // 【同步更新】：因为避障时强制跳过了一个左直角，所以把整体转弯方向机制的锁也更新一下
-        // 并将 angle_flag（直角计数）增加 1，让它与实际丢失的赛道直角对应起来
-        global_turn_dir = 1; // 1代表锁定在找左转的过程中
-        angle_flag++;
+        else // global_turn_dir == 1 或 0 (默认左转赛道)
+        {
+            switch(angle_flag) {
+                case 0: parallel_angle = 0; break;
+                case 1: parallel_angle = 90; break;
+                case 2: parallel_angle = -180; break;
+                case 3: parallel_angle = -90; break;
+                default: parallel_angle = f_a; break;
+            }
+            
+            // 左转赛道的避障动作：向右绕开
+            // 1. 原地右转出弯角度（基于当前实际车头 f_a 转 90 度以脱开障碍物）
+            Ctrl_SAT(0, f_a - 90, 1500, 0); 
+            // 2. 调用速度环走直线（速度5，保持转出的角度，耗时2秒）
+            Ctrl_SAT(5, f_a - 90, 2000, 0); 
+            // 3. 原地旋转回到平行于黑线的绝对角度
+            Ctrl_SAT(0, parallel_angle, 1500, 0);       
+            // 4. 不要预备切线，直接保持理论平行的方向直行，直到传感器碰到黑线
+            Ctrl_SAT(5, parallel_angle, 0, 1);
+            // 新增：寻到黑线后往前开0.5秒
+            Ctrl_SAT(5, parallel_angle, 500, 0);
+            // 5. 碰到黑线后，调用角度环原地左转90度，正对新的寻线方向，耗时1.5秒
+            Ctrl_SAT(0, parallel_angle + 90, 1500, 0); 
+            
+            // 【同步更新】：强制跳过了一个左直角
+            global_turn_dir = 1; // 确保锁定左转
+            angle_flag++;
+        }
         
         falg_bizhang = 1;
         xunxian_flag = 1;
@@ -497,16 +523,16 @@ int main(void)
         switch (angle_flag)
         {
         case 1:
-          target_angle = -60;
+          target_angle = -55;
           break;
         case 2:
-          target_angle = -160;
+          target_angle = -150;
           break;
         case 3:
           target_angle = 110;
           break;
         case 4:
-          target_angle = 170;
+          target_angle = 150;
           break;
         default:
           break;
